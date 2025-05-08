@@ -7,6 +7,8 @@ navbar:
       href: index.html
     - text: "Proportions"
       href: proportions.html
+    - text: "Differences"
+      href: differences.html
     - text: "Free Write"
       href: free-write.html
     - text: "General Info"

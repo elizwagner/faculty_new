@@ -1,0 +1,2266 @@
+---
+title: Difference in Proportions Across Groups
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(tidyr)
+library(knitr)
+library(kableExtra)
+library(purrr)
+library(broom)
+library(tidytext)
+library(wordcloud)
+library(RColorBrewer)
+
+# Set global ggplot theme with extra top margin, centered, full-width, bold titles
+theme_set(
+  theme_minimal() +
+    theme(
+      plot.margin = margin(t = 30, r = 10, b = 10, l = 10),
+      plot.title.position = "plot",
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      plot.subtitle = element_text(hjust = 0.5),  # Center the subtitle
+      legend.position = "none"  # Hide legend globally
+    )
+)
+
+
+
+# Load data
+all_responses_all_questions <- read_excel("all_responses_all_questions.xlsx")
+
+# Reshape to long format including counts and proportions
+all_responses_all_questions_long <- all_responses_all_questions %>%
+  select(
+    Question, Category, Label.y, Level,
+    Count_overall, Count_tenure, Count_nontenure,
+    Proportion_nonNA_overall, Proportion_nonNA_tenure, Proportion_nonNA_nontenure
+  ) %>%
+  pivot_longer(
+    cols = starts_with("Count_") | starts_with("Proportion_nonNA_"),
+    names_to = c(".value", "Group"),
+    names_pattern = "(.*)_(overall|tenure|nontenure)"
+  ) %>%
+  mutate(
+    Group = recode(Group,
+      "overall"    = "Overall",
+      "tenure"     = "Tenure Track",
+      "nontenure"  = "Non-tenure Track"
+    ),
+    Group = factor(Group, levels = c("Overall", "Tenure Track", "Non-tenure Track"))
+  )
+
+# Define group colors
+group_colors <- c(
+  "Overall"          = "#1F78B4",  # dark blue
+  "Tenure Track"     = "#E66101",  # dark orange
+  "Non-tenure Track" = "#4DAF4A"   # dark green
+)
+
+```
+
+*The following analyses show statistically significant differences between responses in groups at the 0.05 alpha level using Chi Square and Fisher's Exact tests. Difference in proportions tests were then applied to get a general idea of which category had significant differences.*
+
+## Tenure Track and Non-tenure Track
+
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Rank and Title</h3>
+</div>
+
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# 0) define the exact response order you want:
+response_order <- c(
+  "Extremely satisfied", 
+  "Somewhat satisfied",
+  "Neither satisfied not unsatisfied",
+  "Somewhat unsatisfied",
+  "Extremely unsatisfied"
+)
+
+# 1) filter & re‐level
+selected_questions <- c("_v8", "_v9")
+
+rank_title_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Rank/Title",
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text"),
+    Question %in% selected_questions
+  ) %>%
+  mutate(
+    Level = factor(Level, levels = response_order)
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(rank_title_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- rank_title_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  
+  test <- if (any(chisq.test(mat)$expected < 5)) {
+    fisher.test(mat)
+  } else {
+    chisq.test(mat)
+  }
+  
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise prop.tests
+pairwise_list <- list()
+
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question       = entry$question_label,
+    Response       = tab$Level,
+    `TT Count`     = tab$`Tenure Track`,
+    `NTT Count`    = tab$`Non-tenure Track`,
+    `Raw p-value`  = round(raw_p, 3),
+    `χ²/Fisher p`  = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & re‐level Response
+final_table <- bind_rows(pairwise_list) %>%
+  mutate(
+    Response = factor(Response, levels = response_order)
+  ) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE,
+    position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Retitling Process</h3>
+</div>
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# 0) define the exact response order you want:
+response_order <- c(
+  "Strongly agree",
+  "Somewhat agree",
+  "Neither agree nor disagree",
+  "Somewhat disagree",
+  "Strongly disagree"
+)
+
+# 1) filter & re‐level
+retitling_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Retitling Process",
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  ) %>%
+  mutate(
+    Level = factor(Level, levels = response_order)
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(retitling_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- retitling_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise proportion tests
+pairwise_list <- list()
+
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question        = entry$question_label,
+    Response        = tab$Level,
+    `TT Count`      = tab$`Tenure Track`,
+    `NTT Count`     = tab$`Non-tenure Track`,
+    `Raw p-value`   = round(raw_p, 3),
+    `χ²/Fisher p`   = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & re‐level Response
+final_table <- bind_rows(pairwise_list) %>%
+  mutate(
+    Response = factor(Response, levels = response_order)
+  ) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE, position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+```
+
+
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Service</h3>
+</div>
+
+
+```{r, fig.height=10, fig.width=7, echo=FALSE, warning=FALSE, message=FALSE}
+# 1) select your questions
+selected_questions <- c("_v15")
+
+serv_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Service",
+    Question %in% selected_questions,
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# 2) build chi_results for *all* questions (no p<0.05 filter)
+unique_questions <- unique(serv_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- serv_data %>%
+    filter(Question == q, Group %in% c("Tenure Track","Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name="Total") %>%
+    pivot_wider(names_from=Group, values_from=Total, values_fill=0)
+  
+  mat <- as.matrix(tab[,c("Tenure Track","Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  
+  test <- if(any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store *every* result now
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    p_value        = test$p.value
+  )
+}
+
+# 3) pairwise proportion tests as before
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  pvals <- map_dbl(seq_len(nrow(tab)), ~
+    prop.test(
+      x = c(tab$`Tenure Track`[.x], tab$`Non-tenure Track`[.x]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  )
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question      = entry$question_label,
+    Response      = tab$Level,
+    `TT Count`    = tab$`Tenure Track`,
+    `NTT Count`   = tab$`Non-tenure Track`,
+    `Raw p-value` = round(pvals,3),
+    `χ²/Fisher p` = round(entry$p_value,3)
+  )
+}
+
+# 4) bind and render
+final_table <- bind_rows(pairwise_list) %>%
+  arrange(Question, Response) %>%
+  rename(`P-value` = `Raw p-value`) %>%
+  select(-Question)
+
+kbl(final_table, format="html", digits=4, align="c") %>%
+  kable_styling("hover","condensed","bordered", full_width=FALSE, position="center") -> kbl_obj
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question==q)
+  kbl_obj <- pack_rows(kbl_obj, q, start_row, start_row+n_rows-1, bold=TRUE)
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+```
+
+```{r, fig.height=10, fig.width=7, echo=FALSE, warning=FALSE, message=FALSE}
+# 1) select your questions
+selected_questions <- c("_v13","_v14","_v18")
+
+serv_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Service",
+    Question %in% selected_questions,
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# 2) build chi_results for *all* questions (no p<0.05 filter)
+unique_questions <- unique(serv_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- serv_data %>%
+    filter(Question == q, Group %in% c("Tenure Track","Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name="Total") %>%
+    pivot_wider(names_from=Group, values_from=Total, values_fill=0)
+  
+  mat <- as.matrix(tab[,c("Tenure Track","Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  
+  test <- if(any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store *every* result now
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    p_value        = test$p.value
+  )
+}
+
+# 3) pairwise proportion tests as before
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  pvals <- map_dbl(seq_len(nrow(tab)), ~
+    prop.test(
+      x = c(tab$`Tenure Track`[.x], tab$`Non-tenure Track`[.x]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  )
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question      = entry$question_label,
+    Response      = tab$Level,
+    `TT Count`    = tab$`Tenure Track`,
+    `NTT Count`   = tab$`Non-tenure Track`,
+    `Raw p-value` = round(pvals,3),
+    `χ²/Fisher p` = round(entry$p_value,3)
+  )
+}
+
+# 4) bind and render
+final_table <- bind_rows(pairwise_list) %>%
+  arrange(Question, Response) %>%
+  rename(`P-value` = `Raw p-value`) %>%
+  select(-Question)
+
+kbl(final_table, format="html", digits=4, align="c") %>%
+  kable_styling("hover","condensed","bordered", full_width=FALSE, position="center") -> kbl_obj
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question==q)
+  kbl_obj <- pack_rows(kbl_obj, q, start_row, start_row+n_rows-1, bold=TRUE)
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+```
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# 0) define the exact response order you want:
+response_order <- c(
+  "Extremely dissatisfied",
+  "Somewhat dissatisfied",
+  "Neither satisfied nor dissatisfied",
+  "Somewhat satisfied",
+  "Extremely satisfied"
+)
+
+# 1) filter & re‐level
+service_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Service",
+    Level != "NA",
+    str_detect(Label.y, regex("satisfied", ignore_case = TRUE))
+  ) %>%
+  mutate(
+    Level = factor(Level, levels = response_order)
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(service_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- service_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store *every* result now
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise prop.tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  # compute raw proportion test p-values
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question        = entry$question_label,
+    Response        = tab$Level,
+    `TT Count`      = tab$`Tenure Track`,
+    `NTT Count`     = tab$`Non-tenure Track`,
+    `Raw p-value`   = round(raw_p, 3),
+    `χ²/Fisher p`   = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & re‐level Response
+final_table <- bind_rows(pairwise_list) %>%
+  mutate(
+    Response = factor(Response, levels = response_order)
+  ) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE, position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+```{r, fig.height=10, fig.width=7, echo=FALSE, warning=FALSE, message=FALSE}
+# 1) select your questions
+selected_questions <- c("_v35")
+
+serv_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Service",
+    Question %in% selected_questions,
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# 2) build chi_results for *all* questions (no p<0.05 filter)
+unique_questions <- unique(serv_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- serv_data %>%
+    filter(Question == q, Group %in% c("Tenure Track","Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name="Total") %>%
+    pivot_wider(names_from=Group, values_from=Total, values_fill=0)
+  
+  mat <- as.matrix(tab[,c("Tenure Track","Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  
+  test <- if(any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store *every* result now
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    p_value        = test$p.value
+  )
+}
+
+# 3) pairwise proportion tests as before
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  pvals <- map_dbl(seq_len(nrow(tab)), ~
+    prop.test(
+      x = c(tab$`Tenure Track`[.x], tab$`Non-tenure Track`[.x]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  )
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question      = entry$question_label,
+    Response      = tab$Level,
+    `TT Count`    = tab$`Tenure Track`,
+    `NTT Count`   = tab$`Non-tenure Track`,
+    `Raw p-value` = round(pvals,3),
+    `χ²/Fisher p` = round(entry$p_value,3)
+  )
+}
+
+# 4) bind and render
+final_table <- bind_rows(pairwise_list) %>%
+  arrange(Question, Response) %>%
+  rename(`P-value` = `Raw p-value`) %>%
+  select(-Question)
+
+kbl(final_table, format="html", digits=4, align="c") %>%
+  kable_styling("hover","condensed","bordered", full_width=FALSE, position="center") -> kbl_obj
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question==q)
+  kbl_obj <- pack_rows(kbl_obj, q, start_row, start_row+n_rows-1, bold=TRUE)
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+```
+
+```{r, fig.height=10, fig.width=7, echo=FALSE, warning=FALSE, message=FALSE}
+# 1) select your questions
+selected_questions <- c("_v39","_v40")
+
+serv_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Service",
+    Question %in% selected_questions,
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# 2) build chi_results for *all* questions (no p<0.05 filter)
+unique_questions <- unique(serv_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- serv_data %>%
+    filter(Question == q, Group %in% c("Tenure Track","Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name="Total") %>%
+    pivot_wider(names_from=Group, values_from=Total, values_fill=0)
+  
+  mat <- as.matrix(tab[,c("Tenure Track","Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  
+  test <- if(any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store *every* result now
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    p_value        = test$p.value
+  )
+}
+
+# 3) pairwise proportion tests as before
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  pvals <- map_dbl(seq_len(nrow(tab)), ~
+    prop.test(
+      x = c(tab$`Tenure Track`[.x], tab$`Non-tenure Track`[.x]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  )
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question      = entry$question_label,
+    Response      = tab$Level,
+    `TT Count`    = tab$`Tenure Track`,
+    `NTT Count`   = tab$`Non-tenure Track`,
+    `Raw p-value` = round(pvals,3),
+    `χ²/Fisher p` = round(entry$p_value,3)
+  )
+}
+
+# 4) bind and render
+final_table <- bind_rows(pairwise_list) %>%
+  arrange(Question, Response) %>%
+  rename(`P-value` = `Raw p-value`) %>%
+  select(-Question)
+
+kbl(final_table, format="html", digits=4, align="c") %>%
+  kable_styling("hover","condensed","bordered", full_width=FALSE, position="center") -> kbl_obj
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question==q)
+  kbl_obj <- pack_rows(kbl_obj, q, start_row, start_row+n_rows-1, bold=TRUE)
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+```
+
+
+```{r, fig.height=10, fig.width=7, echo=FALSE, warning=FALSE, message=FALSE}
+# 1) select your questions
+selected_questions <- c("_v39","_v40")
+
+serv_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Service",
+    Question %in% selected_questions,
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# 2) build chi_results for *all* questions (no p<0.05 filter)
+unique_questions <- unique(serv_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- serv_data %>%
+    filter(Question == q, Group %in% c("Tenure Track","Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name="Total") %>%
+    pivot_wider(names_from=Group, values_from=Total, values_fill=0)
+  
+  mat <- as.matrix(tab[,c("Tenure Track","Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  
+  test <- if(any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store *every* result now
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    p_value        = test$p.value
+  )
+}
+
+# 3) pairwise proportion tests as before
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  pvals <- map_dbl(seq_len(nrow(tab)), ~
+    prop.test(
+      x = c(tab$`Tenure Track`[.x], tab$`Non-tenure Track`[.x]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  )
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question      = entry$question_label,
+    Response      = tab$Level,
+    `TT Count`    = tab$`Tenure Track`,
+    `NTT Count`   = tab$`Non-tenure Track`,
+    `Raw p-value` = round(pvals,3),
+    `χ²/Fisher p` = round(entry$p_value,3)
+  )
+}
+
+# 4) bind and render
+final_table <- bind_rows(pairwise_list) %>%
+  arrange(Question, Response) %>%
+  rename(`P-value` = `Raw p-value`) %>%
+  select(-Question)
+
+kbl(final_table, format="html", digits=4, align="c") %>%
+  kable_styling("hover","condensed","bordered", full_width=FALSE, position="center") -> kbl_obj
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question==q)
+  kbl_obj <- pack_rows(kbl_obj, q, start_row, start_row+n_rows-1, bold=TRUE)
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+```
+
+
+
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Professional development/promotion</h3>
+</div>
+
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# 0) define the exact response order you want:
+response_order <- c(
+  "Not well at all",
+  "Slightly well",
+  "Moderately well",
+  "Very well",
+  "Extremely well"
+)
+
+# 1) filter & immediately turn Level into a factor with your desired levels:
+selected_questions <- c("_v58", "_v59")
+
+profdev_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Professional development and promotion",
+    Question %in% selected_questions,
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  ) %>%
+  mutate(
+    Level = factor(Level, levels = response_order)
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(profdev_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- profdev_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise proportion tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question       = entry$question_label,
+    Response       = tab$Level,
+    `TT Count`     = tab$`Tenure Track`,
+    `NTT Count`    = tab$`Non-tenure Track`,
+    `Raw p-value`  = round(raw_p, 3),
+    `χ²/Fisher p`  = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & re‐level Response, then arrange
+final_table <- bind_rows(pairwise_list) %>%
+  mutate(
+    Response = factor(Response, levels = response_order)
+  ) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE, position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+
+# 1) filter
+selected_questions <- c("_v60")
+
+profdev_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Professional development and promotion",
+    Question %in% selected_questions,
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(profdev_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- profdev_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store every question
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise proportion tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question       = entry$question_label,
+    Response       = tab$Level,
+    `TT Count`     = tab$`Tenure Track`,
+    `NTT Count`    = tab$`Non-tenure Track`,
+    `Raw p-value`  = round(raw_p, 3),
+    `χ²/Fisher p`  = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & arrange
+final_table <- bind_rows(pairwise_list) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE,
+    position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+
+# 1) filter
+selected_questions <- c("_v61")
+
+profdev_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Professional development and promotion",
+    Question %in% selected_questions,
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(profdev_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- profdev_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store every question
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise proportion tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question       = entry$question_label,
+    Response       = tab$Level,
+    `TT Count`     = tab$`Tenure Track`,
+    `NTT Count`    = tab$`Non-tenure Track`,
+    `Raw p-value`  = round(raw_p, 3),
+    `χ²/Fisher p`  = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & arrange
+final_table <- bind_rows(pairwise_list) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE,
+    position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+
+# 1) filter
+selected_questions <- c("_v67", "_v68")
+
+profdev_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Professional development and promotion",
+    Question %in% selected_questions,
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(profdev_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- profdev_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store every question
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise proportion tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question       = entry$question_label,
+    Response       = tab$Level,
+    `TT Count`     = tab$`Tenure Track`,
+    `NTT Count`    = tab$`Non-tenure Track`,
+    `Raw p-value`  = round(raw_p, 3),
+    `χ²/Fisher p`  = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & arrange
+final_table <- bind_rows(pairwise_list) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE,
+    position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# 0) define the exact response order you want:
+response_order <- c(
+  "Strongly disagree",
+   "Somewhat disagree",
+  "Neither agree nor disagree",
+  "Somewhat agree",
+  "Strongly agree"
+)
+
+# 1) filter & immediately turn Level into a factor with your desired levels:
+selected_questions <- c("_v69", "_v70", "_v71", "_v72")
+
+profdev_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Professional development and promotion",
+    Question %in% selected_questions,
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  ) %>%
+  mutate(
+    Level = factor(Level, levels = response_order)
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(profdev_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- profdev_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise proportion tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question       = entry$question_label,
+    Response       = tab$Level,
+    `TT Count`     = tab$`Tenure Track`,
+    `NTT Count`    = tab$`Non-tenure Track`,
+    `Raw p-value`  = round(raw_p, 3),
+    `χ²/Fisher p`  = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & re‐level Response, then arrange
+final_table <- bind_rows(pairwise_list) %>%
+  mutate(
+    Response = factor(Response, levels = response_order)
+  ) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE, position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+
+# 1) filter
+selected_questions <- c("_v73")
+
+profdev_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Professional development and promotion",
+    Question %in% selected_questions,
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(profdev_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- profdev_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store every question
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise proportion tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question       = entry$question_label,
+    Response       = tab$Level,
+    `TT Count`     = tab$`Tenure Track`,
+    `NTT Count`    = tab$`Non-tenure Track`,
+    `Raw p-value`  = round(raw_p, 3),
+    `χ²/Fisher p`  = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & arrange
+final_table <- bind_rows(pairwise_list) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE,
+    position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Well-being</h3>
+</div>
+
+
+
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# 0) define the exact response order you want:
+response_order <- c(
+  "Extremely unsatisfied",
+  "Somewhat unsatisfied",
+  "Neither satisfied nor unsatisfied",
+  "Somewhat satisfied",
+  "Extremely satisfied"
+)
+
+
+# 1) filter & re‐level
+wellbeing_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Well-being",
+    Level != "NA",
+    str_detect(Label.y, regex("satisfied", ignore_case = TRUE)),
+    !str_detect(Label.y, "Other - Text"),
+    !str_detect(tolower(Label.y), "how many")
+  ) %>%
+  mutate(
+    Level = factor(Level, levels = response_order)
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(wellbeing_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- wellbeing_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store *every* result now
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise prop.tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  # compute raw proportion test p-values
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question        = entry$question_label,
+    Response        = tab$Level,
+    `TT Count`      = tab$`Tenure Track`,
+    `NTT Count`     = tab$`Non-tenure Track`,
+    `Raw p-value`   = round(raw_p, 3),
+    `χ²/Fisher p`   = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & re‐level Response
+final_table <- bind_rows(pairwise_list) %>%
+  mutate(
+    Response = factor(Response, levels = response_order)
+  ) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE, position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# 0) define the exact response order you want:
+response_order <- c(
+  "Strongly disagree",
+  "Somewhat disagree",
+  "Neither agree nor disagree",
+  "Somewhat agree",
+  "Strongly agree"
+)
+
+
+# 1) filter & re‐level
+wellbeing_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Well-being",
+    Level != "NA",
+    str_detect(Label.y, "I can")
+  ) %>%
+  mutate(
+    Level = factor(Level, levels = response_order)
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(wellbeing_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- wellbeing_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store *every* result now
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise prop.tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  # compute raw proportion test p-values
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question        = entry$question_label,
+    Response        = tab$Level,
+    `TT Count`      = tab$`Tenure Track`,
+    `NTT Count`     = tab$`Non-tenure Track`,
+    `Raw p-value`   = round(raw_p, 3),
+    `χ²/Fisher p`   = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & re‐level Response
+final_table <- bind_rows(pairwise_list) %>%
+  mutate(
+    Response = factor(Response, levels = response_order)
+  ) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE, position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# 0) define the exact response order you want:
+response_order <- c(
+  "Not well at all",
+  "Slightly well",
+  "Moderately well",
+  "Very well",
+  "Extremely well"
+)
+
+
+# 1) filter & re‐level
+wellbeing_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Well-being",
+    Level != "NA",
+    str_detect(Label.y, "well does")
+  ) %>%
+  mutate(
+    Level = factor(Level, levels = response_order)
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(wellbeing_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- wellbeing_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store *every* result now
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise prop.tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  # compute raw proportion test p-values
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question        = entry$question_label,
+    Response        = tab$Level,
+    `TT Count`      = tab$`Tenure Track`,
+    `NTT Count`     = tab$`Non-tenure Track`,
+    `Raw p-value`   = round(raw_p, 3),
+    `χ²/Fisher p`   = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & re‐level Response
+final_table <- bind_rows(pairwise_list) %>%
+  mutate(
+    Response = factor(Response, levels = response_order)
+  ) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE, position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# 0) define the exact response order you want:
+response_order <- c(
+  "Very unconcerned",
+  "Somewhat unconcerned",
+  "Neither concerned nor unconcerned",
+  "Somewhat concerned",
+  "Very concerned"
+)
+
+
+# 1) filter & re‐level
+wellbeing_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Well-being",
+    Level != "NA",
+    str_detect(Label.y, "concerned")
+  ) %>%
+  mutate(
+    Level = factor(Level, levels = response_order)
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(wellbeing_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- wellbeing_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store *every* result now
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise prop.tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  # compute raw proportion test p-values
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question        = entry$question_label,
+    Response        = tab$Level,
+    `TT Count`      = tab$`Tenure Track`,
+    `NTT Count`     = tab$`Non-tenure Track`,
+    `Raw p-value`   = round(raw_p, 3),
+    `χ²/Fisher p`   = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & re‐level Response
+final_table <- bind_rows(pairwise_list) %>%
+  mutate(
+    Response = factor(Response, levels = response_order)
+  ) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE, position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+
+# 1) filter
+selected_questions <- c("_v82", "_v84", "_v86")
+
+wellbeing_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Well-being",
+    Question %in% selected_questions,
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(wellbeing_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- wellbeing_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store every question
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise proportion tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question       = entry$question_label,
+    Response       = tab$Level,
+    `TT Count`     = tab$`Tenure Track`,
+    `NTT Count`    = tab$`Non-tenure Track`,
+    `Raw p-value`  = round(raw_p, 3),
+    `χ²/Fisher p`  = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & arrange
+final_table <- bind_rows(pairwise_list) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE,
+    position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Equity, morale, respect, and satisfaction</h3>
+</div>
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# 0) define the exact response order you want:
+response_order <- c(
+  "Strongly disagree",
+  "Somewhat disagree",
+  "Neither agree nor disagree",
+  "Somewhat agree",
+  "Strongly agree"
+)
+
+# Filter for Rank/Title category, exclude Level == "NA", exclude 'Other - Text', and include only selected questions
+equity_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Equity, morale, respect, and satisfaction",
+    Level != "NA",
+    str_detect(Level, "agree"),
+    !str_detect(Label.y, "Other - Text"),
+    !str_detect(tolower(Label.y), "how many")  # excludes anything containing "how many"
+  )
+
+
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(equity_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- equity_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store *every* result now
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise prop.tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  # compute raw proportion test p-values
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question        = entry$question_label,
+    Response        = tab$Level,
+    `TT Count`      = tab$`Tenure Track`,
+    `NTT Count`     = tab$`Non-tenure Track`,
+    `Raw p-value`   = round(raw_p, 3),
+    `χ²/Fisher p`   = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & re‐level Response
+final_table <- bind_rows(pairwise_list) %>%
+  mutate(
+    Response = factor(Response, levels = response_order)
+  ) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE, position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Effort Distribution</h3>
+</div>
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# 0) define the exact response order you want:
+response_order <- c(
+  "Very unaligned",
+  "Somewhat unaligned",
+  "Neither aligned nor unaligned",
+  "Somewhat well aligned",
+  "Very well aligned"
+)
+
+# Filter for Rank/Title category, exclude Level == "NA", exclude 'Other - Text', and include only selected questions
+effort_data <- all_responses_all_questions_long %>%
+  filter(
+    Category == "Effort Distribution",
+    Level != "NA",
+    str_detect(Level, "aligned"),
+    !str_detect(Label.y, "Other - Text"),
+    !str_detect(tolower(Label.y), "how many")  # excludes anything containing "how many"
+  )
+
+
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(effort_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- effort_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+  
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+  
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+  test <- if (any(chisq.test(mat)$expected < 5)) fisher.test(mat) else chisq.test(mat)
+  
+  # store *every* result now
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+# 3) pairwise prop.tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  # compute raw proportion test p-values
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question        = entry$question_label,
+    Response        = tab$Level,
+    `TT Count`      = tab$`Tenure Track`,
+    `NTT Count`     = tab$`Non-tenure Track`,
+    `Raw p-value`   = round(raw_p, 3),
+    `χ²/Fisher p`   = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & re‐level Response
+final_table <- bind_rows(pairwise_list) %>%
+  mutate(
+    Response = factor(Response, levels = response_order)
+  ) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE, position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
+
+
+```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+
+# 1) filter
+selected_questions <- c("_v188")
+
+effort_data <- all_responses_all_questions_long %>%
+  filter(
+    Question %in% selected_questions
+  )
+
+# 2) chi‐square / Fisher per question (store *all* p‐values)
+unique_questions <- unique(effort_data$Question)
+chi_results <- list()
+
+for (q in unique_questions) {
+  subset <- effort_data %>%
+    filter(Question == q, Group %in% c("Tenure Track", "Non-tenure Track"))
+
+  tab <- subset %>%
+    count(Level, Group, wt = Count, name = "Total") %>%
+    pivot_wider(names_from = Group, values_from = Total, values_fill = 0)
+
+  mat <- as.matrix(tab[, c("Tenure Track", "Non-tenure Track")])
+  rownames(mat) <- tab$Level
+
+  # use simulated Fisher for small cells
+  if (any(chisq.test(mat)$expected < 5)) {
+    test <- fisher.test(mat, simulate.p.value = TRUE, B = 20000)
+  } else {
+    test <- chisq.test(mat)
+  }
+
+  chi_results[[q]] <- list(
+    question_label = unique(subset$Label.y),
+    data           = tab,
+    total_TT       = sum(tab$`Tenure Track`),
+    total_NTT      = sum(tab$`Non-tenure Track`),
+    chi_p_value    = test$p.value
+  )
+}
+
+
+# 3) pairwise proportion tests
+pairwise_list <- list()
+for (entry in chi_results) {
+  tab     <- entry$data
+  tt_tot  <- entry$total_TT
+  ntt_tot <- entry$total_NTT
+  
+  raw_p <- map_dbl(seq_len(nrow(tab)), function(i) {
+    prop.test(
+      x = c(tab$`Tenure Track`[i], tab$`Non-tenure Track`[i]),
+      n = c(tt_tot, ntt_tot)
+    )$p.value
+  })
+  
+  pairwise_list[[entry$question_label]] <- tibble(
+    Question       = entry$question_label,
+    Response       = tab$Level,
+    `TT Count`     = tab$`Tenure Track`,
+    `NTT Count`    = tab$`Non-tenure Track`,
+    `Raw p-value`  = round(raw_p, 3),
+    `χ²/Fisher p`  = round(entry$chi_p_value, 3)
+  )
+}
+
+# 4) assemble & arrange
+final_table <- bind_rows(pairwise_list) %>%
+  arrange(Question, Response) %>%
+  select(-Question)
+
+# 5) render kable + pack_rows
+kbl_obj <- kbl(final_table, format = "html", digits = 4, align = "c") %>%
+  kable_styling(
+    bootstrap_options = c("hover", "condensed", "bordered"),
+    full_width = FALSE,
+    position = "center"
+  )
+
+start_row <- 1
+for (q in unique(bind_rows(pairwise_list)$Question)) {
+  n_rows <- sum(bind_rows(pairwise_list)$Question == q)
+  kbl_obj <- pack_rows(
+    kbl_obj,
+    group_label = q,
+    start_row,
+    start_row + n_rows - 1,
+    bold = TRUE
+  )
+  start_row <- start_row + n_rows
+}
+
+kbl_obj
+
+```
