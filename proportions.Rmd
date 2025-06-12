@@ -1176,8 +1176,9 @@ rank_title_data <- nontenure_data_subgroup_long %>%
 
 
 questions <- unique(rank_title_data$Label.y)
+```
 
-
+```{r}
 for (q in questions) {
   
   plot_data <- rank_title_data %>%
@@ -2023,7 +2024,6 @@ levels = c(
 
 
 
-
 ```{r, fig.height = 10, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
 
 # Define the specific questions you want
@@ -2741,4 +2741,1025 @@ p <- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group))
 }
 ```
 
+---
+
+## IV. By Department
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Load data
+department_questions <- read_excel("department_summary.xlsx")
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Reshape to long format including department counts and proportions
+department_questions_long <- department_questions %>%
+  select(
+    Question, Category, Label.y, Level,
+    starts_with("Count_"),
+    starts_with("Proportion_all")
+  ) %>%
+  pivot_longer(
+    cols = starts_with("Count_") | starts_with("Proportion_all"),
+    names_to = c(".value", "Group"),
+    names_pattern = "(Count|Proportion_all)_(.*)"
+  ) %>%
+  mutate(
+    Group = recode(Group,
+      "MH"                   = "Mental Health",
+      "HPM"                  = "Health Policy & Management",
+      "Epi"                  = "Epidemiology",
+      "Prefer_not_to_say"    = "Prefer Not to Say",
+      "HBS"                  = "Health, Behavior & Society",
+      "EHE"                  = "Environmental Health & Engineering",
+      "IH"                   = "International Health",
+      "PFRH"                 = "Population, Family & Reproductive Health",
+      "Biostat"              = "Biostatistics",
+      "BMB"                  = "Biochemistry & Molecular Biology",
+      "MMI"                  = "Molecular Microbiology & Immunology"
+    ),
+    Group = factor(Group, levels = c(
+      "Mental Health", "Health Policy & Management", "Epidemiology", "Health, Behavior & Society",
+      "Environmental Health & Engineering", "International Health", "Population, Family & Reproductive Health",
+      "Biostatistics", "Biochemistry & Molecular Biology", "Molecular Microbiology & Immunology", "Prefer Not to Say"
+    ))
+  )
+
+# Define department colors (optional - customize as needed)
+department_colors <- c(
+  "Mental Health"                       = "cornflowerblue",
+  "Health Policy & Management"         = "#bfd3e6",
+  "Epidemiology"                       = "#9ebcda",
+  "Health, Behavior & Society"         = "#8c96c6",
+  "Environmental Health & Engineering" = "#8c6bb1",
+  "International Health"               = "#88419d",
+  "Population, Family & Reproductive Health" = "#810f7c",
+  "Biostatistics"                      = "#4d004b",
+  "Biochemistry & Molecular Biology"   = "#3f007d",
+  "Molecular Microbiology & Immunology" = "slateblue2",
+  "Prefer Not to Say"                  = "#2a004d"
+)
+
+department_questions_long <- department_questions_long %>%
+filter(!is.na(Group)) 
+```
+
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Demographics</h3>
+</div>
+
+
+
+```{r, fig.height = 20, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+
+demographics_title_data <- department_questions_long %>%
+  filter(
+    Category == "Demographics",
+    Level != "NA",
+    Question != "_v195",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+
+dept_levels <- c(
+  "Prefer not to say","Other",
+  "PFRH","MMI","MH","IH",
+  "HPM","HBS","Epi","EHE","BMB","Biostat"
+)
+
+# Get unique questions (Label)
+questions <- unique(demographics_title_data$Label.y)
+
+# Loop over each question and plot
+for (q in questions) {
+  
+  plot_data <- demographics_title_data %>%
+    filter(Label.y == q) %>%
+    mutate(Level_wrapped = str_wrap(Level, width = 25))
+  
+  if (str_detect(tolower(q), "how many")) {
+    # Numeric: expand counts and plot histogram/density by group
+    plot_data_expanded <- plot_data %>%
+      uncount(weights = Count) %>%
+      mutate(Level_num = as.numeric(Level))
+    
+    p <- ggplot(plot_data_expanded, aes(x = Level_num, fill = Group)) +
+      geom_histogram(binwidth = 1, position = "identity", alpha = 0.5, color = "white") +
+      labs(
+        title = str_wrap(q, width = 75),
+        x = "Value",
+        y = "Count"
+      ) +
+      facet_wrap(~ Group, ncol = 1)
+    
+  } else {
+    # Apply race ordering if applicable
+    if (any(str_detect(tolower(plot_data$Level_wrapped), 
+                       "american indian"))) {
+      plot_data <- plot_data %>%
+        mutate(
+          Level_wrapped = factor(
+            Level_wrapped,
+levels = c(
+  "Prefer not to say",
+  "Other",
+  "White",
+  "Middle Eastern or North\nAfrican",
+  "Hispanic or Latino",
+  "Black or African American",
+  "Asian",
+  "American Indian or Alaska\nNative"
+)
+          ))
+    } else if (any(str_detect(tolower(plot_data$Level_wrapped), 
+                       "Biostat"))) {
+      plot_data <- plot_data %>%
+        mutate(Level_wrapped = factor(
+          Level_wrapped,
+          levels = dept_levels
+        ))
+    }
+
+    # Categorical: grouped horizontal bar plot
+    p <- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group)) +
+      geom_col() +
+      scale_fill_manual(values = department_colors) +
+      geom_text(aes(label = Count), hjust = -0.1, size = 3, color = "black") +
+      coord_flip() +
+      labs(
+        title = str_wrap(q, width = 75),
+        x = NULL,
+        y = NULL
+      ) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.15))) +
+      facet_wrap(~ Group, ncol = 1)
+  }
+
+  
+  print(p)
+}
+```
+
+
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Rank and Title</h3>
+</div>
+
+
+
+```{r, fig.height = 20, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Define the specific questions you want
+selected_questions <- c("_v6", "_v7", "_v8", "_v9")
+
+# Filter for Rank/Title category, exclude Level == "NA", exclude 'Other - Text', and include only selected questions
+rank_title_data <- department_questions_long %>%
+  filter(
+    Category == "Rank/Title",
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text"),
+    Question %in% selected_questions
+  )
+
+
+questions <- unique(rank_title_data$Label.y)
+
+for (q in questions) {
+  
+  plot_data <- rank_title_data %>%
+    filter(Label.y == q) %>%
+    mutate(Level_wrapped = str_wrap(Level, width = 25))
+  
+  if (str_detect(tolower(q), "how many")) {
+    # Numeric: expand counts and plot density by group
+    plot_data_expanded <- plot_data %>%
+      filter(!is.na(Count)) %>%
+      uncount(weights = Count) %>%
+      mutate(Level_num = as.numeric(Level)) %>%
+      filter(!is.na(Level_num))
+    
+    # Calculate summary stats per group
+    summary_stats <- plot_data_expanded %>%
+      group_by(Group) %>%
+      summarise(
+        mean_val   = mean(Level_num),
+        median_val = median(Level_num),
+        q1         = quantile(Level_num, 0.25),
+        q3         = quantile(Level_num, 0.75),
+        n_val      = n(),
+        max_y      = max(density(Level_num)$y, na.rm = TRUE),
+        x_center   = mean(Level_num, na.rm = TRUE)
+      )
+    
+    # Create label text for each group
+    summary_stats <- summary_stats %>%
+      mutate(summary_line = paste0(
+        "n=", n_val,
+        "; Mean=", round(mean_val, 2),
+        "; Median=", round(median_val, 2),
+        "; IQR=[", round(q1, 2), ", ", round(q3, 2), "]"
+      ))
+    
+    # Plot with per-group vertical lines + centered summary + labeled lines
+    p <- ggplot(plot_data_expanded, aes(x = Level_num, fill = Group)) +
+      geom_density(alpha = 0.4) +
+      geom_vline(data = summary_stats, aes(xintercept = mean_val, color = Group), linetype = "dashed", size = 0.6, show.legend = FALSE) +
+      geom_text(
+        data = summary_stats,
+        aes(x = mean_val, y = max_y*0.1, label = "Mean"),
+        color = "black", angle = 90, vjust = -0.5,, size = 3
+      ) +
+      # Add overall group summary text centered
+      geom_text(
+        data = summary_stats,
+        aes(x = 2, y = max_y, label = summary_line),
+        hjust = -0.7, vjust = 1, size = 4, color = "black"
+      ) +
+      facet_wrap(~ Group, ncol = 1, scales = "free_y") +
+      scale_fill_manual(values = department_colors) +
+      scale_color_manual(values = department_colors) +
+      labs(
+        title = str_wrap(q, width = 75),
+        x = "Value",
+        y = "Density"
+      )
+    
+  } else {
+   # Apply ordering if matches
+  if (any(str_detect(tolower(plot_data$Level_wrapped), "agree|disagree"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Strongly disagree",
+            "Somewhat disagree",
+            "Neither agree nor\ndisagree",
+            "Somewhat agree",
+            "Strongly agree"
+          )
+        )
+      )
+  } else if (any(str_detect(tolower(plot_data$Level_wrapped), "satisfied|unsatisfied"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Extremely unsatisfied",
+            "Somewhat unsatisfied",
+            "Neither satisfied not\nunsatisfied",
+            "Somewhat satisfied",
+            "Extremely satisfied"
+          )
+        )
+      )
+    }
+
+    # Categorical: horizontal bar plot with facet + color
+    p <- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group)) +
+      geom_col() +
+      geom_text(aes(label = Count), hjust = -0.1, color = "black", size = 3) +
+      coord_flip() +
+      labs(
+        title = str_wrap(q, width = 75),
+        x = NULL,
+        y = "Proportion"
+      ) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.15))) +
+      scale_fill_manual(values = department_colors) +
+      facet_wrap(~ Group, ncol = 1)
+  }
+  
+  print(p)
+}
+```
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Retitling Process</h3>
+</div>
+
+
+
+```{r, fig.height = 20, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+
+selected_questions <- c("_v10", "_v11")
+
+
+retitiling_data <- department_questions_long %>%
+  filter(
+    Category == "Retitling Process",
+    Level != "NA",
+    !str_detect(Label.y, "Other - Text"),
+    Question %in% selected_questions
+  )
+
+# Get unique questions (Label)
+questions <- unique(retitiling_data$Label.y)
+
+# Loop over each question and plot
+for (q in questions) {
+  
+  plot_data <- retitiling_data %>%
+    filter(Label.y == q) %>%
+    mutate(Level_wrapped = str_wrap(Level, width = 25))
+  
+    # Apply ordering if matches
+  if (any(str_detect(tolower(plot_data$Level_wrapped), "agree|disagree"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Strongly disagree",
+            "Somewhat disagree",
+            "Neither agree nor\ndisagree",
+            "Somewhat agree",
+            "Strongly agree"
+          )
+        )
+      )
+  } else if (any(str_detect(tolower(plot_data$Level_wrapped), "satisfied|dissatisfied"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Extremely dissatisfied",
+            "Somewhat dissatisfied",
+            "Neither satisfied nor\ndissatisfied",
+            "Somewhat satisfied",
+            "Extremely satisfied"
+          )
+        )
+      )
+  }
+
+  # Categorical: grouped horizontal bar plot, dynamically reorder within plot
+  p <- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group)) +
+    geom_col() +
+    scale_fill_manual(values = department_colors) +
+    geom_text(aes(label = Count), hjust = -0.1, size = 3, color = "black") +
+    coord_flip() +
+    labs(
+      title = str_wrap(q, width = 75),
+      x = NULL,
+      y = NULL
+    ) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.15))) +
+    facet_wrap(~ Group, ncol = 1)
+  
+  print(p)
+}
+
+```
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Service</h3>
+</div>
+
+
+```{r, fig.height = 20, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+service_data <- department_questions_long %>%
+  filter(Category == "Service", 
+             Level != "NA",
+             Question != "_v31",
+                  Question != "_v43",
+         Question != "_v32",
+         Question != "_v33",
+         Question != "_v34",
+         Question != "_v19",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# Get unique questions (Label)
+questions <- unique(service_data$Label.y)
+
+# Loop over each question and plot
+for (q in questions) {
+  
+  plot_data <- service_data %>%
+    filter(Label.y == q) %>%
+    mutate(Level_wrapped = str_wrap(Level, width = 25))
+
+  # Apply ordering if matches
+  if (any(str_detect(tolower(plot_data$Level_wrapped), "agree|disagree"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Strongly disagree",
+            "Somewhat disagree",
+            "Neither agree nor\ndisagree",
+            "Somewhat agree",
+            "Strongly agree"
+          )
+        )
+      )
+  } else if (any(str_detect(tolower(plot_data$Level_wrapped), "satisfied|dissatisfied"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Extremely dissatisfied",
+            "Somewhat dissatisfied",
+            "Neither satisfied nor\ndissatisfied",
+            "Somewhat satisfied",
+            "Extremely satisfied"
+          )
+        )
+      )
+  }
+
+  # Categorical: grouped horizontal bar plot, dynamically reorder within plot
+  p <- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group)) +
+    geom_col() +
+    scale_fill_manual(values = department_colors) +
+    geom_text(aes(label = Count), hjust = -0.1, size = 3, color = "black") +
+    coord_flip() +
+    labs(
+      title = str_wrap(q, width = 75),
+      x = NULL,
+      y = NULL
+    ) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.15))) +
+    facet_wrap(~ Group, ncol = 1)
+  
+  print(p)
+}
+
+```
+
+```{r, fig.height = 20, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+service_data <- department_questions_long %>%
+  filter(Category == "Service", 
+             Level != "NA",
+             Question == "_v43",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# Get unique questions (Label.y)
+questions <- unique(service_data$Label.y)
+
+# Loop over each question and plot
+for (q in questions) {
+  
+  plot_data <- service_data %>%
+    filter(Label.y == q) %>%
+    mutate(Level_wrapped = str_wrap(Level, width = 70))
+
+
+  # Categorical: grouped horizontal bar plot, dynamically reorder within plot
+  p <- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group)) +
+    geom_col() +
+    scale_fill_manual(values = department_colors) +
+    geom_text(aes(label = Count), hjust = -0.1, size = 3, color = "black") +
+    coord_flip() +
+    labs(
+      title = str_wrap(q, width = 75),
+      x = NULL,
+      y = NULL
+    ) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.15))) +
+    facet_wrap(~ Group, ncol = 1)
+  
+  print(p)
+}
+```
+
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Professional development/promotion</h3>
+</div>
+
+```{r, fig.height = 20, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Filter for Rank/Title category and exclude rows where Level == "NA"
+prof_dev_data <- department_questions_long %>%
+  filter(Category == "Professional development and promotion", 
+             Level != "NA",
+          Question != "_v61",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# Get unique questions (Label)
+questions <- unique(prof_dev_data$Label.y)
+
+
+# Loop over each question and plot
+for (q in questions) {
+  
+  plot_data <- prof_dev_data %>%
+    filter(Label.y == q) %>%
+    mutate(Level_wrapped = str_wrap(Level, width = 25))
+
+  # Apply ordering if matches
+  if (any(str_detect(tolower(plot_data$Level_wrapped), "agree|disagree"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Strongly disagree",
+            "Somewhat disagree",
+            "Neither agree nor\ndisagree",
+            "Somewhat agree",
+            "Strongly agree"
+          )
+        )
+      )
+  } else if (any(str_detect(tolower(plot_data$Level_wrapped), "well"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+  "Not well at all",
+  "Slightly well",
+  "Moderately well",
+  "Very well",
+  "Extremely well"
+)
+
+        )
+      )
+  }
+
+  # Categorical: grouped horizontal bar plot, dynamically reorder within plot
+  p <- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group)) +
+    geom_col() +
+    scale_fill_manual(values = department_colors) +
+    geom_text(aes(label = Count), hjust = -0.1, size = 3, color = "black") +
+    coord_flip() +
+    labs(
+      title = str_wrap(q, width = 75),
+      x = NULL,
+      y = NULL
+    ) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.15))) +
+    facet_wrap(~ Group, ncol = 1)
+  
+  print(p)
+}
+
+```
+
+```{r, fig.height = 27, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Filter for Rank/Title category and exclude rows where Level == "NA"
+prof_dev_data <- department_questions_long %>%
+  filter(Category == "Professional development and promotion", 
+             Level != "NA",
+         Question == "_v61",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# Get unique questions (Label)
+questions <- unique(prof_dev_data$Label.y)
+
+
+# Loop over each question and plot
+for (q in questions) {
+  
+  plot_data <- prof_dev_data %>%
+    filter(Label.y == q) %>%
+    mutate(Level_wrapped = str_wrap(Level, width = 25))
+
+  # Apply ordering if matches
+  if (any(str_detect(tolower(plot_data$Level_wrapped), "agree|disagree"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Strongly disagree",
+            "Somewhat disagree",
+            "Neither agree nor\ndisagree",
+            "Somewhat agree",
+            "Strongly agree"
+          )
+        )
+      )
+  } else if (any(str_detect(tolower(plot_data$Level_wrapped), "well"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+  "Not well at all",
+  "Slightly well",
+  "Moderately well",
+  "Very well",
+  "Extremely well"
+)
+
+        )
+      )
+  }
+
+  # Categorical: grouped horizontal bar plot, dynamically reorder within plot
+  p <- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group)) +
+    geom_col() +
+    scale_fill_manual(values = department_colors) +
+    geom_text(aes(label = Count), hjust = -0.1, size = 3, color = "black") +
+    coord_flip() +
+    labs(
+      title = str_wrap(q, width = 75),
+      x = NULL,
+      y = NULL
+    ) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.15))) +
+    facet_wrap(~ Group, ncol = 1)
+  
+  print(p)
+}
+
+```
+
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Well-being</h3>
+</div>
+
+
+```{r, fig.height = 20, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# Filter for Rank/Title category, exclude Level == "NA", exclude 'Other - Text', and include only selected questions
+well_being_data <- department_questions_long %>%
+  filter(Category == "Well-being", 
+             Level != "NA",
+             Question != "_v81",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# Get unique questions (Label)
+questions <- unique(well_being_data$Label.y)
+
+# Loop over each question and plot
+for (q in questions) {
+  
+  plot_data <- well_being_data %>%
+    filter(Label.y == q) %>%
+    mutate(Level_wrapped = str_wrap(Level, width = 25))
+  
+  if (str_detect(tolower(q), "how many")) {
+    # Numeric: expand counts and plot density by group
+    plot_data_expanded <- plot_data %>%
+      filter(!is.na(Count)) %>%
+      uncount(weights = Count) %>%
+      mutate(Level_num = as.numeric(Level)) %>%
+      filter(!is.na(Level_num))
+    
+    summary_stats <- plot_data_expanded %>%
+      group_by(Group) %>%
+      summarise(
+        mean_val   = mean(Level_num),
+        median_val = median(Level_num),
+        q1         = quantile(Level_num, 0.25),
+        q3         = quantile(Level_num, 0.75),
+        n_val      = n(),
+        max_y      = max(density(Level_num)$y, na.rm = TRUE),
+        x_center   = mean(Level_num, na.rm = TRUE)
+      )
+    
+    summary_stats <- summary_stats %>%
+      mutate(summary_line = paste0(
+        "n=", n_val,
+        "; Mean=", round(mean_val, 2),
+        "; Median=", round(median_val, 2),
+        "; IQR=[", round(q1, 2), ", ", round(q3, 2), "]"
+      ))
+    
+    p <- ggplot(plot_data_expanded, aes(x = Level_num, fill = Group)) +
+      geom_density(alpha = 0.4) +
+      geom_vline(data = summary_stats, aes(xintercept = mean_val, color = Group), linetype = "dashed", size = 0.6, show.legend = FALSE) +
+      geom_text(
+        data = summary_stats,
+        aes(x = mean_val, y = max_y*0.1, label = "Mean"),
+        color = "black", angle = 90, vjust = -0.5,, size = 3
+      ) +
+      # Add overall group summary text centered
+      geom_text(
+        data = summary_stats,
+        aes(x = 6, y = 0.07, label = summary_line),
+        hjust = -0.8, vjust = 1, size = 4, color = "black"
+      ) +
+      facet_wrap(~ Group, ncol = 1, scales = "free_y") +
+      scale_fill_manual(values = department_colors) +
+      scale_color_manual(values = department_colors) +
+      labs(
+        title = str_wrap(q, width = 75),
+        x = "Value",
+        y = "Density"
+      )
+    
+  } else {
+    # Apply ordering if matches known response types
+    if (any(str_detect(tolower(plot_data$Level_wrapped), "agree|disagree"))) {
+      plot_data <- plot_data %>%
+        mutate(
+          Level_wrapped = factor(
+            Level_wrapped,
+            levels = c(
+              "Strongly disagree",
+              "Somewhat disagree",
+              "Neither agree nor\ndisagree",
+              "Somewhat agree",
+              "Strongly agree"
+            )
+          )
+        )
+    } else if (any(str_detect(tolower(plot_data$Level_wrapped), "satisfied|unsatisfied"))) {
+      plot_data <- plot_data %>%
+        mutate(
+          Level_wrapped = factor(
+            Level_wrapped,
+            levels = c(
+            "Extremely unsatisfied",
+            "Somewhat unsatisfied",
+            "Neither satisfied nor\nunsatisfied",
+            "Somewhat satisfied",
+            "Extremely satisfied"
+            )
+          )
+        )
+    } else if (any(str_detect(tolower(plot_data$Level_wrapped), "well"))) {
+      plot_data <- plot_data %>%
+        mutate(
+          Level_wrapped = factor(
+            Level_wrapped,
+            levels = c(
+              "Not well at all",
+              "Slightly well",
+              "Moderately well",
+              "Very well",
+              "Extremely well"
+            )
+          )
+        )
+    } else if (any(str_detect(tolower(plot_data$Level_wrapped), "concerned|unconcerned"))) {
+      plot_data <- plot_data %>%
+        mutate(
+          Level_wrapped = factor(
+            Level_wrapped,
+            levels = c(
+              "Very unconcerned",
+              "Somewhat unconcerned",
+              "Neither concerned nor\nunconcerned",
+              "Somewhat concerned",
+              "Very concerned"
+            )
+          )
+        )
+    }
+
+    # Categorical: horizontal bar plot
+    p <- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group)) +
+      geom_col() +
+      geom_text(aes(label = Count), hjust = -0.1, color = "black", size = 3) +
+      coord_flip() +
+      labs(
+        title = str_wrap(q, width = 75),
+        x = NULL,
+        y = "Proportion"
+      ) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.15))) +
+      scale_fill_manual(values = department_colors) +
+      facet_wrap(~ Group, ncol = 1)
+  }
+  
+  print(p)
+}
+```
+
+
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Equity, morale, respect, and satisfaction</h3>
+</div>
+
+
+```{r, fig.height = 20, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# Filter for Rank/Title category and exclude rows where Level == "NA"
+equity_data <- department_questions_long %>%
+  filter(Category == "Equity, morale, respect, and satisfaction", 
+             Level != "NA",
+         Question != "_v92",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# Get unique questions (Label)
+questions <- unique(equity_data$Label.y)
+
+for (q in questions) {
+  
+  plot_data <- equity_data %>%
+    filter(Label.y == q) %>%
+    mutate(
+      Level_wrapped = ifelse(
+        Question == "_v92",
+        str_wrap(Level, width = 70),  # wider wrap for long responses
+        str_wrap(Level, width = 25)   # default wrap for others
+      )
+    )
+  
+  # Apply ordering if matches
+  if (any(str_detect(tolower(plot_data$Level_wrapped), "agree|disagree"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Strongly disagree",
+            "Somewhat disagree",
+            "Neither agree nor\ndisagree",
+            "Somewhat agree",
+            "Strongly agree"
+          )
+        )
+      )
+  } else if (any(str_detect(tolower(plot_data$Level_wrapped), "satisfied|dissatisfied"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Extremely dissatisfied",
+            "Somewhat dissatisfied",
+            "Neither satisfied nor\ndissatisfied",
+            "Somewhat satisfied",
+            "Extremely satisfied"
+          )
+        )
+      )
+  }
+  
+  # Categorical: grouped horizontal bar plot, dynamically reorder within plot
+  p <- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group)) +
+    geom_col() +
+    scale_fill_manual(values = department_colors) +
+    geom_text(aes(label = Count), hjust = -0.1, size = 3, color = "black") +
+    coord_flip() +
+    labs(
+      title = str_wrap(q, width = 75),
+      x = NULL,
+      y = NULL
+    ) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.15))) +
+    facet_wrap(~ Group, ncol = 1)
+  
+  print(p)
+}
+```
+```{r, fig.height = 27, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# Filter for Rank/Title category and exclude rows where Level == "NA"
+equity_data <- department_questions_long %>%
+  filter(Category == "Equity, morale, respect, and satisfaction", 
+             Level != "NA",
+         Question == "_v92",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# Get unique questions (Label)
+questions <- unique(equity_data$Label.y)
+
+for (q in questions) {
+  
+  plot_data <- equity_data %>%
+    filter(Label.y == q) %>%
+    mutate(
+      Level_wrapped = ifelse(
+        Question == "_v92",
+        str_wrap(Level, width = 70),  # wider wrap for long responses
+        str_wrap(Level, width = 25)   # default wrap for others
+      )
+    )
+  
+  # Apply ordering if matches
+  if (any(str_detect(tolower(plot_data$Level_wrapped), "agree|disagree"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Strongly disagree",
+            "Somewhat disagree",
+            "Neither agree nor\ndisagree",
+            "Somewhat agree",
+            "Strongly agree"
+          )
+        )
+      )
+  } else if (any(str_detect(tolower(plot_data$Level_wrapped), "satisfied|dissatisfied"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Extremely dissatisfied",
+            "Somewhat dissatisfied",
+            "Neither satisfied nor\ndissatisfied",
+            "Somewhat satisfied",
+            "Extremely satisfied"
+          )
+        )
+      )
+  }
+  
+  # Categorical: grouped horizontal bar plot, dynamically reorder within plot
+  p <- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group)) +
+    geom_col() +
+    scale_fill_manual(values = department_colors) +
+    geom_text(aes(label = Count), hjust = -0.1, size = 3, color = "black") +
+    coord_flip() +
+    labs(
+      title = str_wrap(q, width = 75),
+      x = NULL,
+      y = NULL
+    ) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.15))) +
+    facet_wrap(~ Group, ncol = 1)
+  
+  print(p)
+}
+```
+
+
+<div style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>Effort Distribution</h3>
+</div>
+
+```{r, fig.height = 20, fig.width = 7, echo=FALSE, warning=FALSE, message=FALSE}
+# Filter for Rank/Title category and exclude rows where Level == "NA"
+effort_data <- department_questions_long %>%
+  filter(Category == "Effort Distribution", 
+             Level != "NA",
+    !str_detect(Label.y, "Other - Text")
+  )
+
+# Get unique questions (Label)
+questions <- unique(effort_data$Label.y)
+
+for (q in questions) {
+  
+  plot_data <- effort_data %>%
+    filter(Label.y == q) %>%
+    mutate(
+      Level_wrapped = ifelse(
+        Question == "_v92",
+        str_wrap(Level, width = 50),  # wider wrap for long responses
+        str_wrap(Level, width = 25)   # default wrap for others
+      )
+    )
+    
+  # Apply ordering if matches
+  if (any(str_detect(tolower(plot_data$Level_wrapped), "agree|disagree"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Strongly disagree",
+            "Somewhat disagree",
+            "Neither agree nor\ndisagree",
+            "Somewhat agree",
+            "Strongly agree"
+          )
+        )
+      )
+  } else if (any(str_detect(tolower(plot_data$Level_wrapped), "aligned"))) {
+    plot_data <- plot_data %>%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            "Very unaligned",
+            "Somewhat unaligned",
+            "Neither aligned nor\nunaligned",
+            "Somewhat well aligned",
+            "Very well aligned"
+          )
+        )
+      )
+  }
+  # Categorical: grouped horizontal bar plot, dynamically reorder within plot
+p <- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group)) +
+  geom_col() +
+  scale_fill_manual(values = department_colors) +
+  geom_text(aes(label = Count), hjust = -0.1, size = 3, color = "black") +
+  coord_flip() +
+  labs(
+    title = str_wrap(q, width = 75),
+    x = NULL,
+    y = NULL
+  ) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.15))) +
+  facet_wrap(~ Group, ncol = 1)
+
+  
+  print(p)
+}
+```
 

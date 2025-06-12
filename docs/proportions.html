@@ -427,50 +427,170 @@ style="background-color: black; color: white; padding: 10px; margin-bottom: 10px
 Rank and Title
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-19-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-19-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-19-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-19-4.png" width="672" /></p>
+<pre class="r"><code>for (q in questions) {
+  
+  plot_data &lt;- rank_title_data %&gt;%
+    filter(Label.y == q) %&gt;%
+    mutate(Level_wrapped = str_wrap(Level, width = 25))
+  
+  if (str_detect(tolower(q), &quot;how many&quot;)) {
+    # Numeric: expand counts and plot density by group
+    plot_data_expanded &lt;- plot_data %&gt;%
+      filter(!is.na(Count)) %&gt;%
+      uncount(weights = Count) %&gt;%
+      mutate(Level_num = as.numeric(Level)) %&gt;%
+      filter(!is.na(Level_num))
+    
+    # Calculate summary stats per group
+    summary_stats &lt;- plot_data_expanded %&gt;%
+      group_by(Group) %&gt;%
+      summarise(
+        mean_val   = mean(Level_num),
+        median_val = median(Level_num),
+        q1         = quantile(Level_num, 0.25),
+        q3         = quantile(Level_num, 0.75),
+        n_val      = n(),
+        max_y      = max(density(Level_num)$y, na.rm = TRUE),
+        x_center   = mean(Level_num, na.rm = TRUE)
+      )
+    
+    # Create label text for each group
+    summary_stats &lt;- summary_stats %&gt;%
+      mutate(summary_line = paste0(
+        &quot;n=&quot;, n_val,
+        &quot;; Mean=&quot;, round(mean_val, 2),
+        &quot;; Median=&quot;, round(median_val, 2),
+        &quot;; IQR=[&quot;, round(q1, 2), &quot;, &quot;, round(q3, 2), &quot;]&quot;
+      ))
+    
+    # Plot with per-group vertical lines + centered summary + labeled lines
+    p &lt;- ggplot(plot_data_expanded, aes(x = Level_num, fill = Group)) +
+      geom_density(alpha = 0.4) +
+      geom_vline(data = summary_stats, aes(xintercept = mean_val, color = Group), linetype = &quot;dashed&quot;, size = 0.6, show.legend = FALSE) +
+      geom_text(
+        data = summary_stats,
+        aes(x = mean_val, y = max_y*0.1, label = &quot;Mean&quot;),
+        color = &quot;black&quot;, angle = 90, vjust = -0.5,, size = 3
+      ) +
+      # Add overall group summary text centered
+      geom_text(
+        data = summary_stats,
+        aes(x = 2, y = max_y, label = summary_line),
+        hjust = -0.7, vjust = 1, size = 4, color = &quot;black&quot;
+      ) +
+      facet_wrap(~ Group, ncol = 1, scales = &quot;free_y&quot;) +
+      scale_fill_manual(values = group_colors) +
+      scale_color_manual(values = group_colors) +
+      labs(
+        title = str_wrap(q, width = 75),
+        x = &quot;Value&quot;,
+        y = &quot;Density&quot;
+      )
+    
+  } else {
+   # Apply ordering if matches
+  if (any(str_detect(tolower(plot_data$Level_wrapped), &quot;agree|disagree&quot;))) {
+    plot_data &lt;- plot_data %&gt;%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            &quot;Strongly disagree&quot;,
+            &quot;Somewhat disagree&quot;,
+            &quot;Neither agree nor\ndisagree&quot;,
+            &quot;Somewhat agree&quot;,
+            &quot;Strongly agree&quot;
+          )
+        )
+      )
+  } else if (any(str_detect(tolower(plot_data$Level_wrapped), &quot;satisfied|unsatisfied&quot;))) {
+    plot_data &lt;- plot_data %&gt;%
+      mutate(
+        Level_wrapped = factor(
+          Level_wrapped,
+          levels = c(
+            &quot;Extremely unsatisfied&quot;,
+            &quot;Somewhat unsatisfied&quot;,
+            &quot;Neither satisfied not\nunsatisfied&quot;,
+            &quot;Somewhat satisfied&quot;,
+            &quot;Extremely satisfied&quot;
+          )
+        )
+      )
+    }
+
+    # Categorical: horizontal bar plot with facet + color
+    p &lt;- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group)) +
+      geom_col() +
+      geom_text(aes(label = Count), hjust = -0.1, color = &quot;black&quot;, size = 3) +
+      coord_flip() +
+      labs(
+        title = str_wrap(q, width = 75),
+        x = NULL,
+        y = &quot;Proportion&quot;
+      ) +
+      scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.15))) +
+      scale_fill_manual(values = group_colors) +
+      facet_wrap(~ Group, ncol = 1)
+  }
+  
+  print(p)
+}</code></pre>
+<pre><code>## Warning: There was 1 warning in `mutate()`.
+## ℹ In argument: `Level_num = as.numeric(Level)`.
+## Caused by warning:
+## ! NAs introduced by coercion</code></pre>
+<p><img src="proportions_files/figure-html/unnamed-chunk-20-1.png" width="672" /></p>
+<pre><code>## Warning: There was 1 warning in `mutate()`.
+## ℹ In argument: `Level_num = as.numeric(Level)`.
+## Caused by warning:
+## ! NAs introduced by coercion</code></pre>
+<p><img src="proportions_files/figure-html/unnamed-chunk-20-2.png" width="672" /></p>
+<pre><code>## Warning: Removed 1 row containing missing values or values outside the scale range (`geom_text()`).</code></pre>
+<p><img src="proportions_files/figure-html/unnamed-chunk-20-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-20-4.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
 Retitling Process
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-20-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-20-2.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-21-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-21-2.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
 Service
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-21-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-21-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-21-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-21-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-21-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-21-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-21-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-21-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-21-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-21-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-21-11.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-21-12.png" width="672" />
-<img src="proportions_files/figure-html/unnamed-chunk-22-1.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-22-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-11.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-12.png" width="672" />
+<img src="proportions_files/figure-html/unnamed-chunk-23-1.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
 Professional development/promotion
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-23-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-23-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-23-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-23-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-23-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-23-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-23-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-23-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-23-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-23-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-23-11.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-24-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-11.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
 Well-being
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-24-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-24-10.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-25-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-10.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
 Equity, morale, respect, and satisfaction
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-25-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-11.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-12.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-13.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-14.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-15.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-16.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-17.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-18.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-19.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-20.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-21.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-22.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-23.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-24.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-25.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-26.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-27.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-28.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-29.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-30.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-31.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-32.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-33.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-34.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-35.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-36.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-37.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-38.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-25-39.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-26-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-11.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-12.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-13.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-14.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-15.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-16.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-17.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-18.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-19.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-20.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-21.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-22.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-23.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-24.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-25.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-26.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-27.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-28.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-29.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-30.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-31.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-32.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-33.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-34.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-35.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-36.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-37.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-38.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-39.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
 Effort Distribution
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-26-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-26-2.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-27-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-27-2.png" width="672" /></p>
 <hr />
 </div>
 <div id="iii.-non-tenure-by-career-stage" class="section level2">
@@ -481,57 +601,120 @@ style="background-color: black; color: white; padding: 10px; margin-bottom: 10px
 Demographics
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-29-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-29-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-29-3.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-30-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-30-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-30-3.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
 Rank/Title
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-30-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-30-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-30-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-30-4.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-31-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-31-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-31-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-31-4.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
 Retitling Process
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-31-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-31-2.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-32-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-32-2.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
 Service
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-32-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-32-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-32-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-32-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-32-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-32-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-32-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-32-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-32-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-32-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-32-11.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-32-12.png" width="672" /></p>
-<p><img src="proportions_files/figure-html/unnamed-chunk-33-1.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-33-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-33-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-33-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-33-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-33-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-33-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-33-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-33-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-33-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-33-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-33-11.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-33-12.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-34-1.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
 Professional development/promotion
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-34-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-34-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-34-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-34-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-34-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-34-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-34-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-34-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-34-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-34-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-34-11.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-35-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-11.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
 Well-being
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-35-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-35-10.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-36-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-10.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
 Equity, morale, respect, and satisfaction
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-36-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-11.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-12.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-13.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-14.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-15.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-16.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-17.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-18.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-19.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-20.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-21.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-22.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-23.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-24.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-25.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-26.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-27.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-28.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-29.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-30.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-31.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-32.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-33.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-34.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-35.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-36.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-37.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-38.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-36-39.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-37-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-11.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-12.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-13.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-14.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-15.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-16.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-17.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-18.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-19.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-20.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-21.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-22.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-23.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-24.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-25.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-26.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-27.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-28.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-29.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-30.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-31.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-32.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-33.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-34.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-35.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-36.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-37.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-38.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-39.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
 Effort Distribution
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-37-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-37-2.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-38-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-38-2.png" width="672" /></p>
+<hr />
+</div>
+<div id="iv.-by-department" class="section level2">
+<h2>IV. By Department</h2>
+<div
+style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>
+Demographics
+</h3>
+</div>
+<p><img src="proportions_files/figure-html/unnamed-chunk-41-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-41-2.png" width="672" /></p>
+<div
+style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>
+Rank and Title
+</h3>
+</div>
+<p><img src="proportions_files/figure-html/unnamed-chunk-42-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-42-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-42-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-42-4.png" width="672" /></p>
+<div
+style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>
+Retitling Process
+</h3>
+</div>
+<p><img src="proportions_files/figure-html/unnamed-chunk-43-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-43-2.png" width="672" /></p>
+<div
+style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>
+Service
+</h3>
+</div>
+<p><img src="proportions_files/figure-html/unnamed-chunk-44-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-44-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-44-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-44-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-44-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-44-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-44-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-44-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-44-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-44-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-44-11.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-44-12.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-45-1.png" width="672" /></p>
+<div
+style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>
+Professional development/promotion
+</h3>
+</div>
+<p><img src="proportions_files/figure-html/unnamed-chunk-46-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-46-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-46-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-46-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-46-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-46-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-46-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-46-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-46-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-46-10.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-47-1.png" width="672" /></p>
+<div
+style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>
+Well-being
+</h3>
+</div>
+<p><img src="proportions_files/figure-html/unnamed-chunk-48-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-48-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-48-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-48-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-48-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-48-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-48-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-48-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-48-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-48-10.png" width="672" /></p>
+<div
+style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>
+Equity, morale, respect, and satisfaction
+</h3>
+</div>
+<p><img src="proportions_files/figure-html/unnamed-chunk-49-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-11.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-12.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-13.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-14.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-15.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-16.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-17.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-18.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-19.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-20.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-21.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-22.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-23.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-24.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-25.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-26.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-27.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-28.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-29.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-30.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-31.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-32.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-33.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-34.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-35.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-36.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-37.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-49-38.png" width="672" />
+<img src="proportions_files/figure-html/unnamed-chunk-50-1.png" width="672" /></p>
+<div
+style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
+<h3>
+Effort Distribution
+</h3>
+</div>
+<p><img src="proportions_files/figure-html/unnamed-chunk-51-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-51-2.png" width="672" /></p>
 </div>
 
 

@@ -48,13 +48,15 @@ word_qs <- read_excel("Word_questions.xlsx")
 </div>
 
 - [Proportions of Responses](proportions.html): Compare response proportions among the overall sample, Tenure Track and Non-tenure Track, and among different groups that are Non-tenure Track. Questions are grouped as per original survey sections. 
-    
+
+
+- [Differences in Proportions](differences.html): Tests in differences of proportions in survey answers between Tenure Track and Non-tenure Track.
+
 
 - [Free-write Responses](free-write.html): Summaries of what people wrote in the free-write responses. 
 
 
 - [General Information](gen-info.html): Summary of survey times, completion rates, and sample sizes.
-
 
 <div style="text-align: center;">
 
