@@ -427,127 +427,7 @@ style="background-color: black; color: white; padding: 10px; margin-bottom: 10px
 Rank and Title
 </h3>
 </div>
-<pre class="r"><code>for (q in questions) {
-  
-  plot_data &lt;- rank_title_data %&gt;%
-    filter(Label.y == q) %&gt;%
-    mutate(Level_wrapped = str_wrap(Level, width = 25))
-  
-  if (str_detect(tolower(q), &quot;how many&quot;)) {
-    # Numeric: expand counts and plot density by group
-    plot_data_expanded &lt;- plot_data %&gt;%
-      filter(!is.na(Count)) %&gt;%
-      uncount(weights = Count) %&gt;%
-      mutate(Level_num = as.numeric(Level)) %&gt;%
-      filter(!is.na(Level_num))
-    
-    # Calculate summary stats per group
-    summary_stats &lt;- plot_data_expanded %&gt;%
-      group_by(Group) %&gt;%
-      summarise(
-        mean_val   = mean(Level_num),
-        median_val = median(Level_num),
-        q1         = quantile(Level_num, 0.25),
-        q3         = quantile(Level_num, 0.75),
-        n_val      = n(),
-        max_y      = max(density(Level_num)$y, na.rm = TRUE),
-        x_center   = mean(Level_num, na.rm = TRUE)
-      )
-    
-    # Create label text for each group
-    summary_stats &lt;- summary_stats %&gt;%
-      mutate(summary_line = paste0(
-        &quot;n=&quot;, n_val,
-        &quot;; Mean=&quot;, round(mean_val, 2),
-        &quot;; Median=&quot;, round(median_val, 2),
-        &quot;; IQR=[&quot;, round(q1, 2), &quot;, &quot;, round(q3, 2), &quot;]&quot;
-      ))
-    
-    # Plot with per-group vertical lines + centered summary + labeled lines
-    p &lt;- ggplot(plot_data_expanded, aes(x = Level_num, fill = Group)) +
-      geom_density(alpha = 0.4) +
-      geom_vline(data = summary_stats, aes(xintercept = mean_val, color = Group), linetype = &quot;dashed&quot;, size = 0.6, show.legend = FALSE) +
-      geom_text(
-        data = summary_stats,
-        aes(x = mean_val, y = max_y*0.1, label = &quot;Mean&quot;),
-        color = &quot;black&quot;, angle = 90, vjust = -0.5,, size = 3
-      ) +
-      # Add overall group summary text centered
-      geom_text(
-        data = summary_stats,
-        aes(x = 2, y = max_y, label = summary_line),
-        hjust = -0.7, vjust = 1, size = 4, color = &quot;black&quot;
-      ) +
-      facet_wrap(~ Group, ncol = 1, scales = &quot;free_y&quot;) +
-      scale_fill_manual(values = group_colors) +
-      scale_color_manual(values = group_colors) +
-      labs(
-        title = str_wrap(q, width = 75),
-        x = &quot;Value&quot;,
-        y = &quot;Density&quot;
-      )
-    
-  } else {
-   # Apply ordering if matches
-  if (any(str_detect(tolower(plot_data$Level_wrapped), &quot;agree|disagree&quot;))) {
-    plot_data &lt;- plot_data %&gt;%
-      mutate(
-        Level_wrapped = factor(
-          Level_wrapped,
-          levels = c(
-            &quot;Strongly disagree&quot;,
-            &quot;Somewhat disagree&quot;,
-            &quot;Neither agree nor\ndisagree&quot;,
-            &quot;Somewhat agree&quot;,
-            &quot;Strongly agree&quot;
-          )
-        )
-      )
-  } else if (any(str_detect(tolower(plot_data$Level_wrapped), &quot;satisfied|unsatisfied&quot;))) {
-    plot_data &lt;- plot_data %&gt;%
-      mutate(
-        Level_wrapped = factor(
-          Level_wrapped,
-          levels = c(
-            &quot;Extremely unsatisfied&quot;,
-            &quot;Somewhat unsatisfied&quot;,
-            &quot;Neither satisfied not\nunsatisfied&quot;,
-            &quot;Somewhat satisfied&quot;,
-            &quot;Extremely satisfied&quot;
-          )
-        )
-      )
-    }
-
-    # Categorical: horizontal bar plot with facet + color
-    p &lt;- ggplot(plot_data, aes(x = Level_wrapped, y = Proportion_all, fill = Group)) +
-      geom_col() +
-      geom_text(aes(label = Count), hjust = -0.1, color = &quot;black&quot;, size = 3) +
-      coord_flip() +
-      labs(
-        title = str_wrap(q, width = 75),
-        x = NULL,
-        y = &quot;Proportion&quot;
-      ) +
-      scale_y_continuous(labels = scales::percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.15))) +
-      scale_fill_manual(values = group_colors) +
-      facet_wrap(~ Group, ncol = 1)
-  }
-  
-  print(p)
-}</code></pre>
-<pre><code>## Warning: There was 1 warning in `mutate()`.
-## ℹ In argument: `Level_num = as.numeric(Level)`.
-## Caused by warning:
-## ! NAs introduced by coercion</code></pre>
-<p><img src="proportions_files/figure-html/unnamed-chunk-20-1.png" width="672" /></p>
-<pre><code>## Warning: There was 1 warning in `mutate()`.
-## ℹ In argument: `Level_num = as.numeric(Level)`.
-## Caused by warning:
-## ! NAs introduced by coercion</code></pre>
-<p><img src="proportions_files/figure-html/unnamed-chunk-20-2.png" width="672" /></p>
-<pre><code>## Warning: Removed 1 row containing missing values or values outside the scale range (`geom_text()`).</code></pre>
-<p><img src="proportions_files/figure-html/unnamed-chunk-20-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-20-4.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-20-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-20-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-20-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-20-4.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
@@ -561,8 +441,8 @@ style="background-color: black; color: white; padding: 10px; margin-bottom: 10px
 Service
 </h3>
 </div>
-<p><img src="proportions_files/figure-html/unnamed-chunk-22-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-11.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-12.png" width="672" />
-<img src="proportions_files/figure-html/unnamed-chunk-23-1.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-22-1.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-2.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-3.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-4.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-5.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-6.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-7.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-8.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-9.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-10.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-11.png" width="672" /><img src="proportions_files/figure-html/unnamed-chunk-22-12.png" width="672" /></p>
+<p><img src="proportions_files/figure-html/unnamed-chunk-23-1.png" width="672" /></p>
 <div
 style="background-color: black; color: white; padding: 10px; margin-bottom: 10px;">
 <h3>
